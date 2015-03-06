@@ -25,6 +25,7 @@ class MyListener(StreamListener):
 
         # register regex
         self.rgx_add = re.compile(ur'(?:(\d+)年|)(?:(\d+)月|)(?:(\d+)日|)(?:(\d+)時|)(?:(\d+)分|)(?:(まで)|).*?、(.+)'.encode('utf-8'), re.U)
+        self.rgx_showtask = re.compile(ur'^予定'.encode('utf-8'), re.U)
         # set api
         self.api = api
         self.conn = conn
@@ -58,10 +59,12 @@ class MyListener(StreamListener):
     
     def getTimeDeltaLevel(self, td):
         if td > datetime.timedelta(31):
-            return 5
+            return 6
         elif td > datetime.timedelta(7):
-            return 4
+            return 5
         elif td > datetime.timedelta(1):
+            return 4
+        elif td > datetime.timedelta(days=0, hours=6):
             return 3
         elif td > datetime.timedelta(days=0, hours=1):
             return 2
@@ -124,8 +127,25 @@ class MyListener(StreamListener):
             with tweetlock:
                 self.api.update_status(None, u"@"+reply_status.author.screen_name+u" "+u"予定を追加「"+reply_str+u"」", in_reply_to_status_id=reply_status.id)
 
-        elif (reply_str == u'予定'):
-            pass
+        elif (self.rgx_showtask.match(reply_str.encode('utf-8')) != None):
+            print u'予定'.encode('utf-8')
+            self.cur.execute('select * from tasks order by date')
+            all_tasks = u''
+            for t in self.cur.fetchall():
+                #t[2] is task t[1] is date
+                if(self.api.get_user(t[0]).id == reply_status.author.id):
+                    all_tasks=all_tasks+str(t[1]).decode('utf-8')+u'に'+str(t[2]).decode('utf-8')+u'。'
+
+            len_str = len(all_tasks)
+            all_tasks_list = [all_tasks[i:i+100] for i in range(0, len_str, 100)]
+            print all_tasks_list
+
+            for tw in all_tasks_list:
+                with tweetlock:
+                    tw = u"@"+reply_status.author.screen_name+u' '+tw
+                    self.api.update_status(None, tw, in_reply_to_status_id=reply_status.id)
+
+
         else:
             with tweetlock:
                 self.api.update_status(None, u"@"+reply_status.author.screen_name+u" "+u"コマンドが正しくないです。「"+reply_str+u"」", in_reply_to_status_id=reply_status.id)
@@ -155,7 +175,7 @@ def checkSchedule(api,conn,cur):
                 except psycopg2.Error:
                     pass
                 
-            elif (t[1] - datenow <= datetime.timedelta(31) and t[4] == 5):
+            elif (t[1] - datenow <= datetime.timedelta(31) and t[4] == 6):
                 # last 1 month
                 print "1 month"
                 try:
@@ -169,7 +189,7 @@ def checkSchedule(api,conn,cur):
                 except psycopg2.Error:
                     pass
     
-            elif (t[1] - datenow <= datetime.timedelta(7) and t[4] == 4):
+            elif (t[1] - datenow <= datetime.timedelta(7) and t[4] == 5):
                 # last 1 week
                 print "1 week"
                 try:
@@ -183,7 +203,7 @@ def checkSchedule(api,conn,cur):
                 except psycopg2.Error:
                     pass
     
-            elif (t[1] - datenow <= datetime.timedelta(1) and t[4] == 3):
+            elif (t[1] - datenow <= datetime.timedelta(1) and t[4] == 4):
                 # last 1 day 
                 print "1 day"
                 try:
@@ -192,6 +212,20 @@ def checkSchedule(api,conn,cur):
                 except TweepError as e:
                     print e.message
     
+                try:
+                    cur.execute('update tasks set report_level=%s where user_id=%s and date=%s and task=%s and is_deadline=%s', (t[4]-1, t[0], t[1], t[2], t[3]))
+                except psycopg2.Error:
+                    pass
+
+            elif (t[1] - datenow <= datetime.timedelta(days=0, hours=6) and t[4] == 3):
+                # last 6 hour
+                print "6 hour"
+                try:
+                    with tweetlock:
+                        api.update_status(None, u"@"+api.get_user(t[0]).screen_name+u" "+t[2].decode('utf-8')+u"まであと6時間です")
+                except TweepError as e:
+                    print e.message
+
                 try:
                     cur.execute('update tasks set report_level=%s where user_id=%s and date=%s and task=%s and is_deadline=%s', (t[4]-1, t[0], t[1], t[2], t[3]))
                 except psycopg2.Error:
