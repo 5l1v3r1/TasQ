@@ -147,8 +147,29 @@ class MyListener(StreamListener):
 
 
         else:
-            with tweetlock:
-                self.api.update_status(None, u"@"+reply_status.author.screen_name+u" "+u"コマンドが正しくないです。「"+reply_str+u"」", in_reply_to_status_id=reply_status.id)
+            # search mode
+            self.cur.execute('select * from tasks order by date')
+            search_result = u''
+            is_found = False
+            for t in self.cur.fetchall():
+                # t[2] is task t[1] is date
+                if(self.api.get_user(t[0]).id == reply_status.author.id):
+                    if(reply_str in str(t[2]).decode('utf-8')):
+                        is_found = True
+                        search_result = search_result + str(t[1]).decode('utf-8')+u'に'+str(t[2]).decode('utf-8')+u'。'
+
+            if(is_found is False):
+                search_result = u'予定が見つからないです。'
+
+            len_str = len(search_result)
+            search_result_list = [search_result[i:i+100] for i in range(0, len_str, 100)]
+
+            for tw in search_result_list:
+                with tweetlock:
+                    tw = u"@"+reply_status.author.screen_name+u' '+tw
+                    self.api.update_status(None, tw, in_reply_to_status_id=reply_status.id)
+
+
 
 
 #schedule
@@ -170,6 +191,13 @@ def checkSchedule(api,conn,cur):
             if(t[1] <= datenow):
                 #delete
                 print "delete"
+                try:
+
+                    with tweetlock:
+                        api.update_status(None, u"@"+api.get_user(t[0]).screen_name+u" "+t[2].decode('utf-8')+u"の時刻です")
+                except TweepError as e:
+                    print e.message
+                    
                 try:
                     cur.execute('delete from tasks where user_id=%s and date=%s and task=%s and is_deadline=%s', t[0:4])
                 except psycopg2.Error:
