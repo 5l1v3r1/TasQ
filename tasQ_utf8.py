@@ -17,12 +17,9 @@ tweetlock = threading.Lock()
 class TimeoutException(Exception):
     pass
 
-class MyListener(StreamListener):
+class MyListener:
     def __init__(self, api, conn, cur):
         
-        # call super method
-        super(MyListener, self).__init__()
-
         # register regex
         self.rgx_add = re.compile(ur'(?:(\d+)年|)(?:(\d+)月|)(?:(\d+)日|)(?:(\d+)時|)(?:(\d+)分|)(?:(まで)|).*?、(.+)'.encode('utf-8'), re.U)
         self.rgx_showtask = re.compile(ur'^予定'.encode('utf-8'), re.U)
@@ -30,9 +27,6 @@ class MyListener(StreamListener):
         self.api = api
         self.conn = conn
         self.cur = cur
-
-    def __del__(self):
-        pass
 
     def on_status(self, status):
         if(status.in_reply_to_user_id == self.api.me().id):
@@ -48,15 +42,6 @@ class MyListener(StreamListener):
                 with tweetlock:
                     self.api.update_status(None, u"@"+status.author.screen_name+u" "+u"コマンドが正しくないです(ValueError)。「"+reply_str+u"」", in_reply_to_status_id=status.id)
                 
-
-
-    def on_error(self, status):
-        print "an error occurred."
-        print status
-
-    def on_timeout(self):
-        raise TimeoutException
-    
     def getTimeDeltaLevel(self, td):
         if td > datetime.timedelta(31):
             return 6
@@ -323,18 +308,28 @@ if __name__ == '__main__':
     thr.start()
     print "thread start"
 
-    stream = tweepy.Stream(auth, MyListener(api, conn, cur), secure=True)
+    #initialize listener
+    listner = MyListener(api, conn, cur)
+
+    since_id = 0
+    first_exec = True
+    j_i_k_o_id = 535427149
+
+    #get 10 tweets from j_i_k_o's timeline
     while True:
-        try:
-            stream.userstream()
-        except KeyboardInterrupt:
-            print "KeyboardInterrpt occurred"
-            print "terminate this program"
-            cur.close()
-            conn.close()
-            break
-        except TimeoutException:
-            print "TimeoutException occurred"
-            #wait 60 seconds
-            time.sleep(60)
+        time.sleep(30)
+        print "usertimelinescheduler wake"
+        print "since id={0}".format(since_id)
+        statuses = []
+        if first_exec:
+            statuses = api.user_timeline(j_i_k_o_id, count=10)
+        else:
+            statuses = api.user_timeline(j_i_k_o_id, since_id=since_id, count=10)
+
+        for status in statuses:
+            listner.on_status(status)
+
+        if len(statuses) != 0:
+            since_id = statuses[0].id
+            first_exec = False
 
